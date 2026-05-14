@@ -86,6 +86,8 @@ type menuItem struct {
 
 var menuItems = []menuItem{
 	{"Biggest Files", "Find the largest files on your system"},
+	{"Largest Dirs", "Find the largest directories on your system"},
+	{"Duplicate Files", "Find duplicate files and wasted space"},
 }
 
 type model struct {
@@ -94,9 +96,11 @@ type model struct {
 	fileCursor int
 	shineTick  int
 	result     []fileEntry
+	dupResult  []dupGroup
 	err        error
 	scanning   bool
 	statusMsg  string
+	mode       string // "files", "dirs", or "dups"
 }
 
 func initialModel() model {
@@ -120,6 +124,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateResult:
 				m.state = stateMenu
 				m.result = nil
+				m.dupResult = nil
 				m.err = nil
 				m.statusMsg = ""
 				m.fileCursor = 0
@@ -156,9 +161,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateMenu:
 				m.state = stateRunning
 				m.scanning = true
-				return m, scanBiggestFiles()
+				switch m.cursor {
+				case 0:
+					m.mode = "files"
+					return m, scanBiggestFiles()
+				case 1:
+					m.mode = "dirs"
+					return m, scanLargestDirs()
+				case 2:
+					m.mode = "dups"
+					return m, scanDupFiles()
+				}
 			case stateResult:
-				if len(m.result) > 0 {
+				if m.mode == "files" && len(m.result) > 0 {
 					m.statusMsg = ""
 					m.state = stateConfirmDelete
 				}
@@ -168,7 +183,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateMenu {
 				m.state = stateRunning
 				m.scanning = true
-				return m, scanBiggestFiles()
+				switch m.cursor {
+				case 0:
+					m.mode = "files"
+					return m, scanBiggestFiles()
+				case 1:
+					m.mode = "dirs"
+					return m, scanLargestDirs()
+				case 2:
+					m.mode = "dups"
+					return m, scanDupFiles()
+				}
 			}
 
 		case "y", "Y":
@@ -201,6 +226,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateResult
 		m.result = msg.files
 		m.err = msg.err
+
+	case dirsResultMsg:
+		m.scanning = false
+		m.state = stateResult
+		m.result = msg.dirs
+		m.err = msg.err
+
+	case dupResultMsg:
+		m.scanning = false
+		m.state = stateResult
+		m.dupResult = msg.groups
+		m.err = msg.err
 	}
 
 	return m, nil
@@ -209,10 +246,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	switch m.state {
 	case stateRunning:
+		subject := "files"
+		if m.mode == "dirs" {
+			subject = "directories"
+		} else if m.mode == "dups" {
+			subject = "duplicate files"
+		}
 		return renderHeader() + "\n\n" +
-			titleStyle.Render("  Scanning your system for largest files...") + "\n" +
+			titleStyle.Render("  Scanning your system for "+subject+"...") + "\n" +
 			dimStyle.Render("  This may take a moment.\n")
 	case stateResult:
+		if m.mode == "dups" {
+			return renderDupResult(m)
+		}
 		return renderResult(m)
 	case stateConfirmDelete:
 		return renderConfirmDelete(m)
@@ -250,7 +296,11 @@ func renderResult(m model) string {
 	if m.err != nil {
 		b.WriteString("\n" + errorStyle.Render("  Error: "+m.err.Error()) + "\n")
 	} else {
-		b.WriteString(resultHeaderStyle.Render("  Top 20 Largest Files") + "\n\n")
+		header := "  Top 20 Largest Files"
+		if m.mode == "dirs" {
+			header = "  Top 20 Largest Directories"
+		}
+		b.WriteString(resultHeaderStyle.Render(header) + "\n\n")
 		for i, f := range m.result {
 			idxStr := fmt.Sprintf("  %2d.", i+1)
 			sizeStr := fmt.Sprintf("%-10s", formatSize(f.size))
@@ -270,7 +320,11 @@ func renderResult(m model) string {
 		b.WriteString("\n" + errorStyle.Render("  "+m.statusMsg))
 	}
 
-	b.WriteString("\n" + dimStyle.Render("  ↑/↓ navigate • enter delete • q back"))
+	hint := "  ↑/↓ navigate • enter delete • q back"
+	if m.mode == "dirs" {
+		hint = "  ↑/↓ navigate • q back"
+	}
+	b.WriteString("\n" + dimStyle.Render(hint))
 	return b.String()
 }
 
@@ -284,6 +338,38 @@ func renderConfirmDelete(m model) string {
 	b.WriteString(sizeStyle.Render(fmt.Sprintf("  Size: %s", formatSize(f.size))) + "\n\n")
 	b.WriteString(warnStyle.Render("  ⚠  This cannot be undone.") + "\n\n")
 	b.WriteString(dimStyle.Render("  y confirm • n/esc cancel"))
+	return b.String()
+}
+
+func renderDupResult(m model) string {
+	var b strings.Builder
+	b.WriteString(renderHeader() + "\n")
+
+	if m.err != nil {
+		b.WriteString("\n" + errorStyle.Render("  Error: "+m.err.Error()) + "\n")
+	} else if len(m.dupResult) == 0 {
+		b.WriteString(resultHeaderStyle.Render("  Duplicate Files") + "\n\n")
+		b.WriteString(resultRowStyle.Render("  No duplicate files found.") + "\n")
+	} else {
+		b.WriteString(resultHeaderStyle.Render(fmt.Sprintf("  Top %d Duplicate Groups", len(m.dupResult))) + "\n\n")
+		for i, g := range m.dupResult {
+			wasted := g.size * int64(len(g.paths)-1)
+			header := fmt.Sprintf("  %2d.  %d copies  ×  %-10s  =  %s wasted",
+				i+1, len(g.paths), formatSize(g.size), formatSize(wasted))
+			if i == m.fileCursor {
+				b.WriteString(selectedItemStyle.Render(header) + "\n")
+			} else {
+				b.WriteString(resultIndexStyle.Render(fmt.Sprintf("  %2d.", i+1)) +
+					resultRowStyle.Render(fmt.Sprintf("  %d copies  ×  %-10s  =  %s wasted",
+						len(g.paths), formatSize(g.size), formatSize(wasted))) + "\n")
+			}
+			for _, p := range g.paths {
+				b.WriteString(dimStyle.Render("       "+p) + "\n")
+			}
+		}
+	}
+
+	b.WriteString("\n" + dimStyle.Render("  ↑/↓ navigate • q back"))
 	return b.String()
 }
 
