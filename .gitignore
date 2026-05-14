@@ -1,0 +1,30 @@
+# binary
+socool
+socool.exe
+
+# build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# dependency vendoring
+vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# environment & secrets
+.env
+.env.*
+
+# editor & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
