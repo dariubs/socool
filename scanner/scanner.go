@@ -9,7 +9,7 @@ const TopN = 20
 
 var skipDirs = map[string]bool{
 	"/proc": true, "/sys": true, "/dev": true,
-	"/run":  true, "/tmp": true,
+	"/run": true, "/tmp": true,
 }
 
 type FileEntry struct {
