@@ -10,15 +10,15 @@ const (
 	ansiBridge = "\033[93m"       // yellow bridge / arms
 	ansiReset  = "\033[0m"
 
-	lensInner  = 8               // ██ units inside each lens
-	shineCycle = lensInner + 4   // 4 blank frames between sweeps
+	lensInner  = 8             // ██ units inside each lens
+	shineCycle = lensInner + 4 // 4 blank frames between sweeps
 )
 
 // buildLogo returns the glasses logo with the shine at the given tick position.
 func buildLogo(tick int) string {
-	arm    := ansiBridge + "██"
+	arm := ansiBridge + "██"
 	bridge := ansiBridge + "████"
-	frame  := ansiFrame + strings.Repeat("██", lensInner+2)
+	frame := ansiFrame + strings.Repeat("██", lensInner+2)
 
 	shineAt := tick % shineCycle
 
