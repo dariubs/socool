@@ -1,4 +1,4 @@
-package main
+package scanner
 
 import (
 	"crypto/md5"
@@ -7,34 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
-type dupGroup struct {
-	size  int64
-	paths []string
+type hashKey struct {
+	size int64
+	hash string
 }
 
-type dupResultMsg struct {
-	groups []dupGroup
-	err    error
-}
-
-func scanDupFiles() tea.Cmd {
-	return func() tea.Msg {
-		groups, err := findDuplicateFiles("/")
-		return dupResultMsg{groups: groups, err: err}
-	}
-}
-
-func findDuplicateFiles(root string) ([]dupGroup, error) {
-	skipDirs := map[string]bool{
-		"/proc": true, "/sys": true, "/dev": true,
-		"/run":  true, "/tmp": true,
-	}
-
-	// group paths by size first — cheap pre-filter
+func FindDuplicateFiles(root string, n int) ([]DupGroup, error) {
 	bySize := make(map[int64][]string)
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -42,10 +22,7 @@ func findDuplicateFiles(root string) ([]dupGroup, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if skipDirs[path] {
-				return filepath.SkipDir
-			}
-			if path != root && filepath.Dir(path) == root && len(filepath.Base(path)) > 0 && filepath.Base(path)[0] == '.' {
+			if shouldSkip(path, root) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -61,8 +38,7 @@ func findDuplicateFiles(root string) ([]dupGroup, error) {
 		return nil, err
 	}
 
-	// hash only files that share a size
-	byHash := make(map[string][]string)
+	byHash := make(map[hashKey][]string)
 	for size, paths := range bySize {
 		if len(paths) < 2 {
 			continue
@@ -72,26 +48,27 @@ func findDuplicateFiles(root string) ([]dupGroup, error) {
 			if herr != nil {
 				continue
 			}
-			key := fmt.Sprintf("%d:%s", size, h)
+			key := hashKey{size: size, hash: h}
 			byHash[key] = append(byHash[key], p)
 		}
 	}
 
-	var groups []dupGroup
+	var groups []DupGroup
 	for key, paths := range byHash {
 		if len(paths) < 2 {
 			continue
 		}
-		var size int64
-		fmt.Sscanf(key, "%d:", &size)
 		sort.Strings(paths)
-		groups = append(groups, dupGroup{size: size, paths: paths})
+		groups = append(groups, DupGroup{Size: key.size, Paths: paths})
 	}
 	sort.Slice(groups, func(i, j int) bool {
-		wi := groups[i].size * int64(len(groups[i].paths)-1)
-		wj := groups[j].size * int64(len(groups[j].paths)-1)
+		wi := groups[i].Size * int64(len(groups[i].Paths)-1)
+		wj := groups[j].Size * int64(len(groups[j].Paths)-1)
 		return wi > wj
 	})
+	if len(groups) > n {
+		groups = groups[:n]
+	}
 	return groups, nil
 }
 

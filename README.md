@@ -1,5 +1,7 @@
 # socool
 
+[![CI](https://github.com/dariubs/socool/actions/workflows/ci.yml/badge.svg)](https://github.com/dariubs/socool/actions/workflows/ci.yml)
+
 A terminal UI toolkit for system tasks, written in Go.
 
 <img src="logo.svg" alt="socool logo" width="480"/>
@@ -7,6 +9,8 @@ A terminal UI toolkit for system tasks, written in Go.
 ## Features
 
 - **Biggest Files** — scan your system and list the top 20 largest files by size, with interactive navigation and one-key deletion
+- **Largest Dirs** — scan your system and list the top 20 directories by cumulative size
+- **Duplicate Files** — find duplicate files and show wasted space, ranked by bytes recoverable
 
 ## Install
 
